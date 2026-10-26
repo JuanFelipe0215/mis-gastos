@@ -105,4 +105,21 @@ describe('CSV', () => {
     expect(() => parseCSVBackup('fecha;monto\n2026-10-25;abc', DEFAULT_CATEGORIES)).toThrow(/Línea 2/)
     expect(() => parseCSVBackup('nombre;valor\nx;1', DEFAULT_CATEGORIES)).toThrow(/columnas/)
   })
+
+  it('rechaza montos negativos o con decimales', () => {
+    expect(() => parseCSVBackup('fecha;monto\n2026-10-25;-5000', DEFAULT_CATEGORIES)).toThrow(/Línea 2/)
+    expect(() => parseCSVBackup('fecha;monto\n2026-10-25;25.000,50', DEFAULT_CATEGORIES)).toThrow(/Línea 2/)
+    const ok = parseCSVBackup('fecha;monto\n2026-10-25;$ 25.000\n2026-10-26;1 200', DEFAULT_CATEGORIES)
+    expect(ok.expenses.map((e) => e.amount)).toEqual([25000, 1200])
+  })
+
+  it('conserva la categoría por id aunque haya nombres repetidos', () => {
+    const categories = [...DEFAULT_CATEGORIES, { id: 'segunda', name: 'Comida', emoji: '🍕', color: '#000000', order: 8 }]
+    const expenses = [expense('a', { categoryId: 'comida' }), expense('b', { categoryId: 'segunda' })]
+    const data = parseCSVBackup(expensesToCSV({ categories, expenses }), categories)
+    expect(data.expenses.map((e) => e.categoryId)).toEqual(['comida', 'segunda'])
+
+    const sinId = parseCSVBackup('fecha;monto;categoria\n2026-10-25;1000;Comida', categories)
+    expect(sinId.expenses[0].categoryId).toBe('comida')
+  })
 })

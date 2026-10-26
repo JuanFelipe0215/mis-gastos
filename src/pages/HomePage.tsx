@@ -19,9 +19,9 @@ export function HomePage({ onSelect, onGoToBackup }: Props) {
   const anchor = fromISODate(today)
   const week = periodRange('week', anchor)
   const month = periodRange('month', anchor)
-  const from = week.start < month.start ? week.start : month.start
-  const expenses = useExpensesInRange(from, today)
   const recentFrom = toISODate(addDays(anchor, -6))
+  const from = [week.start, month.start, recentFrom].sort()[0]
+  const expenses = useExpensesInRange(from, today)
 
   if (!expenses) return null
 

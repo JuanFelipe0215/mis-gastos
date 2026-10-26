@@ -77,13 +77,13 @@ export function parseJSONBackup(text: string): BackupData {
   return { categories: result.data.categories, expenses: result.data.expenses }
 }
 
-const CSV_HEADER = ['fecha', 'monto', 'categoria', 'descripcion', 'id']
+const CSV_HEADER = ['fecha', 'monto', 'categoria', 'descripcion', 'id', 'categoria_id']
 
 export function expensesToCSV(data: BackupData): string {
   const names = new Map(data.categories.map((c) => [c.id, c.name]))
   const rows = [...data.expenses]
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt)
-    .map((e) => [e.date, String(e.amount), names.get(e.categoryId) ?? 'Otros', e.description, e.id])
+    .map((e) => [e.date, String(e.amount), names.get(e.categoryId) ?? 'Otros', e.description, e.id, e.categoryId])
   return '\uFEFF' + toCSV([CSV_HEADER, ...rows])
 }
 
@@ -94,25 +94,42 @@ const normalize = (text: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
+/** Enteros positivos, con o sin "$" y separadores de miles: "25000", "$ 25.000", "1 200". */
+const CSV_AMOUNT = /^(\$\s*)?(\d+|\d{1,3}([.\s]\d{3})+)$/
+
 /**
- * Lee un CSV con columnas fecha, monto, categoria, descripcion (id opcional).
- * Las categorías se emparejan por nombre; las que no existan se crean.
+ * Lee un CSV con columnas fecha, monto, categoria, descripcion (id y categoria_id opcionales).
+ * Las categorías se emparejan por categoria_id y, si no viene, por nombre
+ * (con nombres repetidos gana la primera según su orden); las que no existan se crean.
  */
 export function parseCSVBackup(text: string, existing: Category[], now = Date.now()): BackupData {
   const rows = parseCSV(text)
   if (rows.length === 0) throw new ImportError('El CSV está vacío.')
   const header = rows[0].map(normalize)
   const col = (name: string) => header.indexOf(name)
-  const idx = { fecha: col('fecha'), monto: col('monto'), categoria: col('categoria'), descripcion: col('descripcion'), id: col('id') }
+  const idx = {
+    fecha: col('fecha'),
+    monto: col('monto'),
+    categoria: col('categoria'),
+    descripcion: col('descripcion'),
+    id: col('id'),
+    categoriaId: col('categoria_id'),
+  }
   if (idx.fecha < 0 || idx.monto < 0) {
     throw new ImportError('El CSV debe tener al menos las columnas "fecha" y "monto".')
   }
 
-  const byName = new Map(existing.map((c) => [normalize(c.name), c]))
+  const byId = new Map(existing.map((c) => [c.id, c]))
+  const byName = new Map<string, Category>()
+  for (const c of [...existing].sort((a, b) => a.order - b.order)) {
+    if (!byName.has(normalize(c.name))) byName.set(normalize(c.name), c)
+  }
   const created: Category[] = []
   let nextOrder = existing.reduce((max, c) => Math.max(max, c.order), -1) + 1
 
-  const resolveCategory = (rawName: string): string => {
+  const resolveCategory = (rawId: string, rawName: string): string => {
+    const byIdMatch = byId.get(rawId.trim())
+    if (byIdMatch) return byIdMatch.id
     const name = rawName.trim()
     if (!name) return FALLBACK_CATEGORY_ID
     const found = byName.get(normalize(name))
@@ -127,12 +144,16 @@ export function parseCSVBackup(text: string, existing: Category[], now = Date.no
     const line = i + 2
     const date = (row[idx.fecha] ?? '').trim()
     if (!isISODate(date)) throw new ImportError(`Línea ${line}: la fecha "${date}" debe tener formato AAAA-MM-DD.`)
-    const amount = parseAmount(row[idx.monto] ?? '')
+    const rawAmount = (row[idx.monto] ?? '').trim().replace(/\u00a0/g, ' ')
+    const amount = CSV_AMOUNT.test(rawAmount) ? parseAmount(rawAmount) : 0
     if (amount <= 0) throw new ImportError(`Línea ${line}: el monto "${row[idx.monto] ?? ''}" no es válido.`)
     return {
       id: (idx.id >= 0 && row[idx.id]?.trim()) || newId(),
       amount,
-      categoryId: resolveCategory(idx.categoria >= 0 ? (row[idx.categoria] ?? '') : ''),
+      categoryId: resolveCategory(
+        idx.categoriaId >= 0 ? (row[idx.categoriaId] ?? '') : '',
+        idx.categoria >= 0 ? (row[idx.categoria] ?? '') : '',
+      ),
       description: (idx.descripcion >= 0 ? (row[idx.descripcion] ?? '') : '').trim().slice(0, 200),
       date,
       createdAt: now + i,
