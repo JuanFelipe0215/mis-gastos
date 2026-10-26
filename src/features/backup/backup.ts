@@ -99,7 +99,7 @@ const CSV_AMOUNT = /^(\$\s*)?(\d+|\d{1,3}([.\s]\d{3})+)$/
 
 /**
  * Lee un CSV con columnas fecha, monto, categoria, descripcion (id y categoria_id opcionales).
- * Las categorías se emparejan por categoria_id y, si no viene, por nombre
+ * Las categorías se emparejan por categoria_id si el nombre coincide; si no, por nombre
  * (con nombres repetidos gana la primera según su orden); las que no existan se crean.
  */
 export function parseCSVBackup(text: string, existing: Category[], now = Date.now()): BackupData {
@@ -128,9 +128,9 @@ export function parseCSVBackup(text: string, existing: Category[], now = Date.no
   let nextOrder = existing.reduce((max, c) => Math.max(max, c.order), -1) + 1
 
   const resolveCategory = (rawId: string, rawName: string): string => {
-    const byIdMatch = byId.get(rawId.trim())
-    if (byIdMatch) return byIdMatch.id
     const name = rawName.trim()
+    const byIdMatch = byId.get(rawId.trim())
+    if (byIdMatch && (!name || normalize(byIdMatch.name) === normalize(name))) return byIdMatch.id
     if (!name) return FALLBACK_CATEGORY_ID
     const found = byName.get(normalize(name))
     if (found) return found.id

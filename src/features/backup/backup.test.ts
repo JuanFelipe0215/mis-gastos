@@ -121,5 +121,9 @@ describe('CSV', () => {
 
     const sinId = parseCSVBackup('fecha;monto;categoria\n2026-10-25;1000;Comida', categories)
     expect(sinId.expenses[0].categoryId).toBe('comida')
+
+    const renombrada = parseCSVBackup('fecha;monto;categoria;descripcion;id;categoria_id\n2026-10-25;1000;Viajes;;x;comida', categories)
+    expect(renombrada.expenses[0].categoryId).not.toBe('comida')
+    expect(renombrada.categories.find((c) => c.id === renombrada.expenses[0].categoryId)?.name).toBe('Viajes')
   })
 })
